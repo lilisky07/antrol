@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AntreanListController;
 use App\Http\Controllers\Api\PublicAntreanController;
+use App\Http\Controllers\Api\LiveAntreanController;
 
 /*
 |--------------------------------------------------------------------------
@@ -21,6 +22,7 @@ Route::post('/login', [AuthController::class, 'login']);
 
 
     Route::get('/antrean/public-list', [PublicAntreanController::class, 'list']);
+    Route::get('/antrean/live-rencana-kontrol', [LiveAntreanController::class, 'listRencanaKontrol']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
