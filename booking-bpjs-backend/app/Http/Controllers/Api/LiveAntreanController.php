@@ -40,7 +40,6 @@ class SimrsLiveAntreanController extends Controller
             ])->post($this->apiUrl . 'rencanakontrol', [ // ini endpoint untuk list surat kontrol
                 'bulan' => date('m'), // bulan sekarang
                 'tahun' => date('Y'), // tahun sekarang
-                // Tambah filter kalau perlu, misal 'filter_tanggal' => '2025-01-01'
             ]);
 
             $data = $response->json();
