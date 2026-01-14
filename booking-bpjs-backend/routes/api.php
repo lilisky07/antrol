@@ -18,11 +18,22 @@ use App\Http\Controllers\Api\LiveAntreanController;
 |
 */
 
-Route::post('/login', [AuthController::class, 'login']);
+
 
 
     Route::get('/antrean/public-list', [PublicAntreanController::class, 'list']);
     Route::get('/antrean/live-rencana-kontrol', [LiveAntreanController::class, 'listRencanaKontrol']);
+    Route::post('/antrean/ambil', [PublicAntreanController::class, 'ambilAntrean']);
+
+
+
+
+
+
+    
+
+
+Route::post('/login', [AuthController::class, 'login']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
