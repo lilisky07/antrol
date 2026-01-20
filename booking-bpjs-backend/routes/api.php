@@ -22,9 +22,8 @@ use App\Http\Controllers\Api\LiveAntreanController;
 
 
     Route::get('/antrean/public-list', [PublicAntreanController::class, 'list']);
-    Route::get('/antrean/live-rencana-kontrol', [LiveAntreanController::class, 'listRencanaKontrol']);
     Route::post('/antrean/ambil', [PublicAntreanController::class, 'ambilAntrean']);
-
+    Route::get('/antrean/cek', [PublicAntreanController::class, 'cekAntrean']);
 
 
 
@@ -32,6 +31,7 @@ use App\Http\Controllers\Api\LiveAntreanController;
 
     
 
+    Route::get('/antrean/live-rencana-kontrol', [LiveAntreanController::class, 'listRencanaKontrol']);
 
 Route::post('/login', [AuthController::class, 'login']);
 
