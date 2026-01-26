@@ -52,15 +52,15 @@ class PublicAntreanController extends Controller
                 $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
             }
 
-            // Filter poli
+            // Filter poli ini di buat ngakses semua isi poli bukan cuma halaman nya ya 
             if ($request->filled('poli')) {
-                $query->where('poliklinik.nm_poli', 'like', '%' . $request->get('poli') . '%');
+                $query->whereIn('bsk.nm_poli_bpjs', explode(',', $request->get('poli')));
             }
 
             // Filter dokter
-            if ($request->filled('dokter')) {
-                $query->where('dokter.nm_dokter', 'like', '%' . $request->get('dokter') . '%');
-            }
+            // if ($request->filled('dokter')) {
+            //     $query->where('dokter.nm_dokter', 'like', '%' . $request->get('dokter') . '%');
+            // }
 
             $query->select(
                 'pasien.no_rkm_medis as no_rm',
@@ -99,227 +99,227 @@ class PublicAntreanController extends Controller
         }
     }
 
-  public function ambilAntrean(Request $request)
-{
-    DB::beginTransaction();
-    try {
-        $request->validate([
-            'no_rm'       => 'required|string',
-            'no_surat'    => 'required|string',
-            'kd_poli'     => 'required|string',
-            'kd_dokter'   => 'required|string',
-            'tgl_antrean' => 'required|date'
-        ]);
+    public function ambilAntrean(Request $request)
+    {
+        DB::beginTransaction();
+        try {
+            $request->validate([
+                'no_rm'       => 'required|string',
+                'no_surat'    => 'required|string',
+                'kd_poli'     => 'required|string',
+                'kd_dokter'   => 'required|string',
+                'tgl_antrean' => 'required|date'
+            ]);
 
-        $tglAntrean = date('Y-m-d', strtotime($request->tgl_antrean));
+            $tglAntrean = date('Y-m-d', strtotime($request->tgl_antrean));
 
-        $pasien = DB::table('pasien')
-            ->where('no_rkm_medis', $request->no_rm)
-            ->first();
+            $pasien = DB::table('pasien')
+                ->where('no_rkm_medis', $request->no_rm)
+                ->first();
 
-        if (!$pasien) {
-            DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Pasien tidak ditemukan'], 404);
-        }
+            if (!$pasien) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Pasien tidak ditemukan'], 404);
+            }
 
-        // todo cek udh daftr ap blm 
-        $existingBooking = DB::table('referensi_mobilejkn_bpjs')
-            ->where('norm', $request->no_rm)
-            ->where('nomorreferensi', $request->no_surat)
-            ->where('status', 'Booking')   // sesuaikan kalau statusnya beda (misal 'Sudah')
-            ->first(['nobooking', 'no_rawat', 'nomorantrean', 'tanggalperiksa', 'estimasidilayani']);
+            // todo cek udh daftr ap blm 
+            $existingBooking = DB::table('referensi_mobilejkn_bpjs')
+                ->where('norm', $request->no_rm)
+                ->where('nomorreferensi', $request->no_surat)
+                ->where('status', 'Booking')   // sesuaikan kalau statusnya beda (misal 'Sudah')
+                ->first(['nobooking', 'no_rawat', 'nomorantrean', 'tanggalperiksa', 'estimasidilayani']);
 
-        if ($existingBooking) {
-            $existingReg = DB::table('reg_periksa')
-                ->where('no_rawat', $existingBooking->no_rawat)
-                ->first(['no_reg']);
+            if ($existingBooking) {
+                $existingReg = DB::table('reg_periksa')
+                    ->where('no_rawat', $existingBooking->no_rawat)
+                    ->first(['no_reg']);
 
-            DB::commit(); // tetap commit meski tidak insert baru
+                DB::commit(); // tetap commit meski tidak insert baru
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Pasien sudah terdaftar di antrean sebelumnya',
+                    'data' => [
+                        'nobooking'       => $existingBooking->nobooking,
+                        'no_rawat'        => $existingBooking->no_rawat,
+                        'no_reg'          => $existingReg ? str_pad($existingReg->no_reg, 3, '0', STR_PAD_LEFT) : null,
+                        'nomorantrean'    => $existingBooking->nomorantrean,
+                        'tanggal'         => $existingBooking->tanggalperiksa,
+                        'estimasi'        => $existingBooking->estimasidilayani ? date('H:i', $existingBooking->estimasidilayani) : null,
+                        'sisa_kuota'      => null, // bisa hitung ulang kalau perlu
+                    ]
+                ]);
+            }
+            // ────────────────────────────────────────────────
+
+            // Jika belum ada → lanjut proses insert normal
+
+            // Cek kuota
+            $jumlahAntrean = DB::table('referensi_mobilejkn_bpjs')
+                ->where('tanggalperiksa', $tglAntrean)
+                ->where('kodepoli', $request->kd_poli)
+                ->count();
+
+            $kuotaTotal = 30;
+            if ($jumlahAntrean >= $kuotaTotal) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Kuota antrean sudah penuh'], 400);
+            }
+
+            // Generate no_rawat
+            $tglRawat = date('Y/m/d', strtotime($tglAntrean));
+            $lastRawat = DB::table('reg_periksa')
+                ->where('no_rawat', 'like', $tglRawat . '%')
+                ->orderBy('no_rawat', 'desc')
+                ->first(['no_rawat']);
+
+            $newNumber = $lastRawat ? (int) substr($lastRawat->no_rawat, -6) + 1 : 1;
+            $noRawat = $tglRawat . '/' . str_pad($newNumber, 6, '0', STR_PAD_LEFT);
+
+            // Generate nobooking
+            $prefixBooking = date('Ymd', strtotime($tglAntrean));
+            $lastBooking = DB::table('referensi_mobilejkn_bpjs')
+                ->where('nobooking', 'like', $prefixBooking . '%')
+                ->orderBy('nobooking', 'desc')
+                ->first(['nobooking']);
+
+            $newNumBooking = $lastBooking ? (int) substr($lastBooking->nobooking, -6) + 1 : 1;
+            $noBooking = $prefixBooking . str_pad($newNumBooking, 6, '0', STR_PAD_LEFT);
+
+            $nomorAntrean = $jumlahAntrean + 1;
+
+            // no_reg
+            $noReg = DB::table('reg_periksa')
+                ->whereDate('tgl_registrasi', $tglAntrean)
+                ->where('kd_poli', $request->kd_poli)
+                ->where('kd_dokter', $request->kd_dokter)
+                ->count() + 1;
+
+            // Jadwal
+            $jadwal = DB::table('jadwal')
+                ->where('kd_dokter', $request->kd_dokter)
+                ->where('kd_poli', $request->kd_poli)
+                ->where('hari_kerja', $this->getNamaHari($tglAntrean))
+                ->first(['jam_mulai']);
+
+            $jamMulai = $jadwal ? substr($jadwal->jam_mulai, 0, 5) : '08:00';
+
+            // Estimasi
+            $estimasiMenit = ($nomorAntrean - 1) * 10;
+            $estimasiWaktu = strtotime($tglAntrean . ' ' . $jamMulai) + ($estimasiMenit * 60);
+
+            // Umur pasien
+            $umur = 0;
+            $sttsumur = 'Th';
+            if ($pasien->tgl_lahir) {
+                $lahir = new \DateTime($pasien->tgl_lahir);
+                $today = new \DateTime('today');
+                $diff = $lahir->diff($today);
+
+                if ($diff->y > 0) {
+                    $umur = $diff->y;
+                    $sttsumur = 'Th';
+                } elseif ($diff->m > 0) {
+                    $umur = $diff->m;
+                    $sttsumur = 'Bl';
+                } else {
+                    $umur = $diff->d;
+                    $sttsumur = 'Hr';
+                }
+            }
+
+            // Biaya registrasi
+            $biayaReg = DB::table('poliklinik')
+                ->where('kd_poli', $request->kd_poli)
+                ->value('registrasilama') ?? 0;
+
+            $dataRegPeriksa = [
+                'no_reg'         => str_pad($noReg, 3, '0', STR_PAD_LEFT),
+                'no_rawat'       => $noRawat,
+                'tgl_registrasi' => $tglAntrean,
+                'jam_reg'        => now()->format('H:i:s'),
+                'kd_dokter'      => $request->kd_dokter,
+                'no_rkm_medis'   => $request->no_rm,
+                'kd_poli'        => $request->kd_poli,
+                'p_jawab'        => $pasien->nm_pasien,
+                'almt_pj'        => $pasien->alamat ?? '-',
+                'hubunganpj'     => 'KELUARGA',
+                'biaya_reg'      => $biayaReg,
+                'stts'           => 'Belum',
+                'stts_daftar'    => 'Lama',
+                'status_lanjut'  => 'Ralan',
+                'kd_pj'          => 'BPJ',
+                'umurdaftar'     => $umur,
+                'sttsumur'       => $sttsumur,
+                'status_bayar'   => 'Belum Bayar',
+                'status_poli'    => 'Lama'
+            ];
+
+            Log::info('Insert reg_periksa', $dataRegPeriksa);
+
+            if (!DB::table('reg_periksa')->insert($dataRegPeriksa)) {
+                throw new \Exception('Gagal insert reg_periksa');
+            }
+
+            $dataReferensi = [
+                'nobooking'        => $noBooking,
+                'no_rawat'         => $noRawat,
+                'nomorkartu'       => $pasien->no_peserta ?? '',
+                'nik'              => $pasien->no_ktp ?? '',
+                'nohp'             => $pasien->no_tlp ?? '',
+                'kodepoli'         => $request->kd_poli,
+                'pasienbaru'       => '0',
+                'norm'             => $request->no_rm,
+                'tanggalperiksa'   => $tglAntrean,
+                'kodedokter'       => $request->kd_dokter,
+                'jampraktek'       => $jamMulai,
+                'jeniskunjungan'   => '2 (Rujukan Internal)',
+                'nomorreferensi'   => $request->no_surat,
+                'nomorantrean'     => $nomorAntrean,
+                'angkaantrean'     => $nomorAntrean,
+                'estimasidilayani' => $estimasiWaktu,
+                'sisakuotajkn'     => $kuotaTotal - $nomorAntrean,
+                'sisakuotanonjkn'  => 0,
+                'kuotajkn'         => $kuotaTotal,
+                'kuotanonjkn'      => 0,
+                'status'           => 'Belum',
+                'validasi'         => now(),
+                'statuskirim'      => 'Belum'
+            ];
+
+            Log::info('Insert referensi_mobilejkn_bpjs', ['nobooking' => $noBooking]);
+
+            if (!DB::table('referensi_mobilejkn_bpjs')->insert($dataReferensi)) {
+                throw new \Exception('Gagal insert referensi_mobilejkn_bpjs');
+            }
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Pasien sudah terdaftar di antrean sebelumnya',
-                'data' => [
-                    'nobooking'       => $existingBooking->nobooking,
-                    'no_rawat'        => $existingBooking->no_rawat,
-                    'no_reg'          => $existingReg ? str_pad($existingReg->no_reg, 3, '0', STR_PAD_LEFT) : null,
-                    'nomorantrean'    => $existingBooking->nomorantrean,
-                    'tanggal'         => $existingBooking->tanggalperiksa,
-                    'estimasi'        => $existingBooking->estimasidilayani ? date('H:i', $existingBooking->estimasidilayani) : null,
-                    'sisa_kuota'      => null, // bisa hitung ulang kalau perlu
+                'message' => 'Antrean berhasil diambil',
+                'data'    => [
+                    'nobooking'       => $noBooking,
+                    'no_rawat'        => $noRawat,
+                    'no_reg'          => str_pad($noReg, 3, '0', STR_PAD_LEFT),
+                    'nomorantrean'    => $nomorAntrean,
+                    'tanggal'         => $tglAntrean,
+                    'estimasi'        => date('H:i', $estimasiWaktu),
+                    'sisa_kuota'      => $kuotaTotal - $nomorAntrean
                 ]
             ]);
-        }
-        // ────────────────────────────────────────────────
-
-        // Jika belum ada → lanjut proses insert normal
-
-        // Cek kuota
-        $jumlahAntrean = DB::table('referensi_mobilejkn_bpjs')
-            ->where('tanggalperiksa', $tglAntrean)
-            ->where('kodepoli', $request->kd_poli)
-            ->count();
-
-        $kuotaTotal = 30;
-        if ($jumlahAntrean >= $kuotaTotal) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['success' => false, 'message' => 'Kuota antrean sudah penuh'], 400);
+            Log::error('Error ambilAntrean', [
+                'message' => $e->getMessage(),
+                'trace'   => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
         }
-
-        // Generate no_rawat
-        $tglRawat = date('Y/m/d', strtotime($tglAntrean));
-        $lastRawat = DB::table('reg_periksa')
-            ->where('no_rawat', 'like', $tglRawat . '%')
-            ->orderBy('no_rawat', 'desc')
-            ->first(['no_rawat']);
-
-        $newNumber = $lastRawat ? (int) substr($lastRawat->no_rawat, -6) + 1 : 1;
-        $noRawat = $tglRawat . '/' . str_pad($newNumber, 6, '0', STR_PAD_LEFT);
-
-        // Generate nobooking
-        $prefixBooking = date('Ymd', strtotime($tglAntrean));
-        $lastBooking = DB::table('referensi_mobilejkn_bpjs')
-            ->where('nobooking', 'like', $prefixBooking . '%')
-            ->orderBy('nobooking', 'desc')
-            ->first(['nobooking']);
-
-        $newNumBooking = $lastBooking ? (int) substr($lastBooking->nobooking, -6) + 1 : 1;
-        $noBooking = $prefixBooking . str_pad($newNumBooking, 6, '0', STR_PAD_LEFT);
-
-        $nomorAntrean = $jumlahAntrean + 1;
-
-        // no_reg
-        $noReg = DB::table('reg_periksa')
-            ->whereDate('tgl_registrasi', $tglAntrean)
-            ->where('kd_poli', $request->kd_poli)
-            ->where('kd_dokter', $request->kd_dokter)
-            ->count() + 1;
-
-        // Jadwal
-        $jadwal = DB::table('jadwal')
-            ->where('kd_dokter', $request->kd_dokter)
-            ->where('kd_poli', $request->kd_poli)
-            ->where('hari_kerja', $this->getNamaHari($tglAntrean))
-            ->first(['jam_mulai']);
-
-        $jamMulai = $jadwal ? substr($jadwal->jam_mulai, 0, 5) : '08:00';
-
-        // Estimasi
-        $estimasiMenit = ($nomorAntrean - 1) * 10;
-        $estimasiWaktu = strtotime($tglAntrean . ' ' . $jamMulai) + ($estimasiMenit * 60);
-
-        // Umur pasien
-        $umur = 0;
-        $sttsumur = 'Th';
-        if ($pasien->tgl_lahir) {
-            $lahir = new \DateTime($pasien->tgl_lahir);
-            $today = new \DateTime('today');
-            $diff = $lahir->diff($today);
-
-            if ($diff->y > 0) {
-                $umur = $diff->y;
-                $sttsumur = 'Th';
-            } elseif ($diff->m > 0) {
-                $umur = $diff->m;
-                $sttsumur = 'Bl';
-            } else {
-                $umur = $diff->d;
-                $sttsumur = 'Hr';
-            }
-        }
-
-        // Biaya registrasi
-        $biayaReg = DB::table('poliklinik')
-            ->where('kd_poli', $request->kd_poli)
-            ->value('registrasilama') ?? 0;
-
-        $dataRegPeriksa = [
-            'no_reg'         => str_pad($noReg, 3, '0', STR_PAD_LEFT),
-            'no_rawat'       => $noRawat,
-            'tgl_registrasi' => $tglAntrean,
-            'jam_reg'        => now()->format('H:i:s'),
-            'kd_dokter'      => $request->kd_dokter,
-            'no_rkm_medis'   => $request->no_rm,
-            'kd_poli'        => $request->kd_poli,
-            'p_jawab'        => $pasien->nm_pasien,
-            'almt_pj'        => $pasien->alamat ?? '-',
-            'hubunganpj'     => 'KELUARGA',
-            'biaya_reg'      => $biayaReg,
-            'stts'           => 'Belum',
-            'stts_daftar'    => 'Lama',
-            'status_lanjut'  => 'Ralan',
-            'kd_pj'          => 'BPJ',
-            'umurdaftar'     => $umur,
-            'sttsumur'       => $sttsumur,
-            'status_bayar'   => 'Belum Bayar',
-            'status_poli'    => 'Lama'
-        ];
-
-        Log::info('Insert reg_periksa', $dataRegPeriksa);
-
-        if (!DB::table('reg_periksa')->insert($dataRegPeriksa)) {
-            throw new \Exception('Gagal insert reg_periksa');
-        }
-
-        $dataReferensi = [
-            'nobooking'        => $noBooking,
-            'no_rawat'         => $noRawat,
-            'nomorkartu'       => $pasien->no_peserta ?? '',
-            'nik'              => $pasien->no_ktp ?? '',
-            'nohp'             => $pasien->no_tlp ?? '',
-            'kodepoli'         => $request->kd_poli,
-            'pasienbaru'       => '0',
-            'norm'             => $request->no_rm,
-            'tanggalperiksa'   => $tglAntrean,
-            'kodedokter'       => $request->kd_dokter,
-            'jampraktek'       => $jamMulai,
-            'jeniskunjungan'   => '2 (Rujukan Internal)',
-            'nomorreferensi'   => $request->no_surat,
-            'nomorantrean'     => $nomorAntrean,
-            'angkaantrean'     => $nomorAntrean,
-            'estimasidilayani' => $estimasiWaktu,
-            'sisakuotajkn'     => $kuotaTotal - $nomorAntrean,
-            'sisakuotanonjkn'  => 0,
-            'kuotajkn'         => $kuotaTotal,
-            'kuotanonjkn'      => 0,
-            'status'           => 'Belum',
-            'validasi'         => now(),
-            'statuskirim'      => 'Belum'
-        ];
-
-        Log::info('Insert referensi_mobilejkn_bpjs', ['nobooking' => $noBooking]);
-
-        if (!DB::table('referensi_mobilejkn_bpjs')->insert($dataReferensi)) {
-            throw new \Exception('Gagal insert referensi_mobilejkn_bpjs');
-        }
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Antrean berhasil diambil',
-            'data'    => [
-                'nobooking'       => $noBooking,
-                'no_rawat'        => $noRawat,
-                'no_reg'          => str_pad($noReg, 3, '0', STR_PAD_LEFT),
-                'nomorantrean'    => $nomorAntrean,
-                'tanggal'         => $tglAntrean,
-                'estimasi'        => date('H:i', $estimasiWaktu),
-                'sisa_kuota'      => $kuotaTotal - $nomorAntrean
-            ]
-        ]);
-    } catch (\Exception $e) {
-        DB::rollBack();
-        Log::error('Error ambilAntrean', [
-            'message' => $e->getMessage(),
-            'trace'   => $e->getTraceAsString()
-        ]);
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
     }
-}
 
     private function getNamaHari($tanggal)
     {
@@ -402,4 +402,153 @@ class PublicAntreanController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
+
+    /**
+     * Get detail antrean berdasarkan no_rawat atau no_rm
+     */
+    public function getDetailAntrean(Request $request)
+    {
+        try {
+            $noRawat = $request->get('no_rawat');
+            $noRm = $request->get('no_rm');
+
+            if (!$noRawat && !$noRm) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Parameter no_rawat atau no_rm harus diisi'
+                ], 400);
+            }
+
+            $query = DB::table('referensi_mobilejkn_bpjs as rmj')
+                ->leftJoin('reg_periksa as rp', 'rmj.no_rawat', '=', 'rp.no_rawat')
+                ->leftJoin('pasien as p', 'rmj.norm', '=', 'p.no_rkm_medis')
+                ->leftJoin('poliklinik as pol', 'rmj.kodepoli', '=', 'pol.kd_poli')
+                ->leftJoin('dokter as d', 'rmj.kodedokter', '=', 'd.kd_dokter')
+                ->select(
+                    'rmj.nobooking',
+                    'rmj.no_rawat',
+                    'rmj.norm as no_rm',
+                    'p.nm_pasien as nama_pasien',
+                    'p.no_peserta as no_kartu_bpjs',
+                    'p.no_ktp as nik',
+                    'p.no_tlp as no_hp',
+                    'rmj.tanggalperiksa',
+                    'rmj.kodepoli',
+                    'pol.nm_poli as nama_poli',
+                    'rmj.kodedokter',
+                    'd.nm_dokter as nama_dokter',
+                    'rmj.jampraktek',
+                    'rmj.jeniskunjungan',
+                    'rmj.nomorreferensi as no_surat_kontrol',
+                    'rmj.nomorantrean',
+                    'rmj.angkaantrean',
+                    'rmj.estimasidilayani',
+                    'rmj.sisakuotajkn',
+                    'rmj.kuotajkn',
+                    'rmj.status',
+                    'rmj.validasi',
+                    'rmj.statuskirim',
+                    'rp.no_reg',
+                    'rp.stts as status_periksa',
+                    'rp.status_bayar',
+                    'rp.biaya_reg'
+                );
+
+            if ($noRawat) {
+                $query->where('rmj.no_rawat', $noRawat);
+            } else {
+                $query->where('rmj.norm', $noRm);
+            }
+
+            $data = $query->orderBy('rmj.validasi', 'desc')->get();
+
+            if ($data->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Data antrean tidak ditemukan'
+                ], 404);
+            }
+
+            // Format estimasi dilayani
+            $data = $data->map(function($item) {
+                $item->estimasi_waktu = $item->estimasidilayani 
+                    ? date('H:i', $item->estimasidilayani) 
+                    : null;
+                return $item;
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $noRawat ? $data->first() : $data,
+                'count' => $data->count()
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getDetailAntrean', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list semua poli untuk dropdown filter
+     */
+    public function getPoliList()
+    {
+        try {
+            $poliList = DB::table('bridging_surat_kontrol_bpjs as bsk')
+                ->join('bridging_sep as bs', 'bsk.no_sep', '=', 'bs.no_sep')
+                ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
+                ->where('rp.stts', '!=', 'Batal')
+                ->whereNotNull('bsk.no_surat')
+                ->whereNotNull('bsk.nm_poli_bpjs')
+                ->select('bsk.nm_poli_bpjs as nm_poli')
+                ->distinct()
+                ->orderBy('bsk.nm_poli_bpjs', 'asc')
+                ->pluck('nm_poli');
+
+            return response()->json([
+                'success' => true,
+                'data' => $poliList
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get list semua dokter untuk dropdown filter
+     */
+    // public function getDokterList()
+    // {
+    //     try {
+    //         $dokterList = DB::table('bridging_surat_kontrol_bpjs as bsk')
+    //             ->join('bridging_sep as bs', 'bsk.no_sep', '=', 'bs.no_sep')
+    //             ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
+    //             ->where('rp.stts', '!=', 'Batal')
+    //             ->whereNotNull('bsk.no_surat')
+    //             ->whereNotNull('bsk.nm_dokter_bpjs')
+    //             ->select('bsk.nm_dokter_bpjs as nm_dokter')
+    //             ->distinct()
+    //             ->orderBy('bsk.nm_dokter_bpjs', 'asc')
+    //             ->pluck('nm_dokter');
+
+    //         return response()->json([
+    //             'success' => true,
+    //             'data' => $dokterList
+    //         ]);
+    //     } catch (\Exception $e) {
+    //         return response()->json([
+    //             'success' => false,
+    //             'message' => $e->getMessage()
+    //         ], 500);
+    //     }
+    // }
 }
