@@ -15,6 +15,15 @@ function AntreanTable({
 }) {
   const perPage = 20;
 
+  // Urutkan data berdasarkan tanggal terbaru
+  const sortedAntrean = React.useMemo(() => {
+    return [...antrean].sort((a, b) => {
+      const dateA = new Date(a.tgl_rencana);
+      const dateB = new Date(b.tgl_rencana);
+      return dateB - dateA; // Descending (terbaru dulu)
+    });
+  }, [antrean]);
+
   return (
     <Card fullWidth>
       <div style={{ padding: '24px' }}>
@@ -65,7 +74,7 @@ function AntreanTable({
                   </tr>
                 </thead>
                 <tbody>
-                  {antrean.map(item => (
+                  {sortedAntrean.map(item => (
                     <tr key={item.no_surat} style={{ borderBottom: '1px solid #e5e7eb' }}>
                       <td style={{ padding: '14px' }}>{item.no_rm || '-'}</td>
                       <td style={{ padding: '14px', fontWeight: 600 }}>{item.no_surat || '-'}</td>
@@ -76,18 +85,26 @@ function AntreanTable({
                       <td style={{
                         padding: '14px',
                         fontWeight: 600,
-                        color: item.status === 'Belum Booking' ? '#dc2626' : '#16a34a'
+                        color: item.isBooked ? '#16a34a' : '#dc2626'
                       }}>
-                        {item.status || 'Belum Booking'}
+                        {item.isBooked ? 'Sudah Booking' : 'Belum Booking'}
                       </td>
                       <td style={{ padding: '14px' }}>
-                        {item.status === 'Belum Booking' ? (
-                          <Button variant="success" size="sm" onClick={() => handleAmbil(item)}>
-                            Ambil
+                        {item.isBooked ? (
+                          <Button 
+                            variant="danger" 
+                            size="sm" 
+                            onClick={() => handleBatal(item)}
+                          >
+                            Batal
                           </Button>
                         ) : (
-                          <Button variant="danger" size="sm" onClick={() => handleBatal(item)}>
-                            Batal
+                          <Button 
+                            variant="success" 
+                            size="sm" 
+                            onClick={() => handleAmbil(item)}
+                          >
+                            Ambil
                           </Button>
                         )}
                       </td>

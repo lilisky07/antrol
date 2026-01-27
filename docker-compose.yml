@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: ./booking-bpjs-backend
+      dockerfile: Dockerfile
+    container_name: booking-bpjs-app
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./booking-bpjs-backend:/var/www
+    networks:
+      - booking-network
+
+  web:
+    image: nginx:alpine
+    container_name: booking-bpjs-nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./booking-bpjs-backend:/var/www
+      - ./booking-bpjs-backend/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - app
+    networks:
+      - booking-network
+
+networks:
+  booking-network:

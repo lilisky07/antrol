@@ -9,92 +9,138 @@ use Illuminate\Support\Facades\Log;
 
 class PublicAntreanController extends Controller
 {
-    public function list(Request $request)
+public function list(Request $request)
+{
+    try {
+        $perPage = $request->get('per_page', 30);
+
+        // Query utama
+        $query = DB::table('bridging_surat_kontrol_bpjs as bsk')
+            ->whereNotNull('bsk.no_surat')
+            ->where('bsk.tgl_rencana', '>=', now()->subYears(3));
+
+        if ($request->filled('search')) {
+            $search = $request->get('search');
+            $query->where(function ($q) use ($search) {
+                $q->where('bsk.no_surat', 'like', "%{$search}%")
+                  ->orWhere('bsk.no_sep', 'like', "%{$search}%");
+            });
+        }
+
+        if ($request->filled('tgl_rencana')) {
+            $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
+        }
+
+        if ($request->filled('poli')) {
+            $query->whereIn('bsk.nm_poli_bpjs', explode(',', $request->get('poli')));
+        }
+
+        $query->select(
+            'bsk.no_surat',
+            'bsk.tgl_surat',
+            'bsk.tgl_rencana',
+            'bsk.nm_poli_bpjs as poli',
+            'bsk.nm_dokter_bpjs as dokter',
+            'bsk.no_sep'
+        )
+        ->orderBy('bsk.tgl_rencana', 'desc')
+        ->orderBy('bsk.tgl_surat', 'desc');
+
+        $antrean = $query->simplePaginate($perPage);
+        
+        $noSepList = collect($antrean->items())->pluck('no_sep')->toArray();
+        
+        // Ambil data pasien
+        $pasienData = DB::table('bridging_sep as bs')
+            ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
+            ->join('pasien as p', 'rp.no_rkm_medis', '=', 'p.no_rkm_medis')
+            ->whereIn('bs.no_sep', $noSepList)
+            ->where('rp.stts', '!=', 'Batal')
+            ->select(
+                'bs.no_sep',
+                'p.no_rkm_medis as no_rm',
+                'p.nm_pasien as nama',
+                'rp.kd_poli',
+                'rp.kd_dokter'
+            )
+            ->get()
+            ->keyBy('no_sep');
+
+        // ✅ CEK BOOKING - status 'Belum' atau 'Checkin' = sudah booking
+        $noSuratList = collect($antrean->items())->pluck('no_surat')->toArray();
+        
+        $bookedData = DB::table('referensi_mobilejkn_bpjs')
+            ->whereIn('nomorreferensi', $noSuratList)
+            ->whereIn('status', ['Belum', 'Checkin']) // ✅ Cek status Belum atau Checkin
+            ->select('nomorreferensi', 'status', 'nobooking', 'nomorantrean', 'no_rawat')
+            ->get()
+            ->keyBy('nomorreferensi');
+
+        Log::info('Booked Data Count', ['count' => $bookedData->count()]);
+        Log::info('No Surat List', ['list' => $noSuratList]);
+        Log::info('Booked Data', ['data' => $bookedData->toArray()]);
+
+        // Gabungkan data
+        $data = collect($antrean->items())->map(function($item) use ($pasienData, $bookedData) {
+            $pasien = $pasienData->get($item->no_sep);
+            $booking = $bookedData->get($item->no_surat);
+            
+            return [
+                'no_surat'       => $item->no_surat,
+                'no_rm'          => $pasien->no_rm ?? '-',
+                'nama'           => $pasien->nama ?? '-',
+                'tgl_surat'      => $item->tgl_surat,
+                'tgl_rencana'    => $item->tgl_rencana,
+                'poli'           => $item->poli,
+                'dokter'         => $item->dokter,
+                'kd_poli'        => $pasien->kd_poli ?? null,
+                'kd_dokter'      => $pasien->kd_dokter ?? null,
+                'isBooked'       => $booking ? true : false, // ✅ True kalau ada booking
+                'status_booking' => $booking->status ?? null, // Belum/Checkin
+                'nobooking'      => $booking->nobooking ?? null,
+                'nomorantrean'   => $booking->nomorantrean ?? null,
+                'no_rawat'       => $booking->no_rawat ?? null,
+            ];
+        })->toArray();
+
+        return response()->json([
+            'success'      => true,
+            'data'         => $data,
+            'current_page' => $antrean->currentPage(),
+            'next_page'    => $antrean->hasMorePages() ? $antrean->currentPage() + 1 : null,
+            'per_page'     => $antrean->perPage(),
+        ]);
+    } catch (\Exception $e) {
+        Log::error('Error list antrean: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Error mengambil data: ' . $e->getMessage()
+        ], 500);
+    }
+}
+
+ public function getPoliList()
     {
         try {
-            $perPage = $request->get('per_page', 30);
-
-            $query = DB::table('bridging_surat_kontrol_bpjs as bsk')
+            $poliList = DB::table('bridging_surat_kontrol_bpjs as bsk')
                 ->join('bridging_sep as bs', 'bsk.no_sep', '=', 'bs.no_sep')
                 ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
-                ->join('pasien', 'rp.no_rkm_medis', '=', 'pasien.no_rkm_medis')
-                ->leftJoin('poliklinik', 'rp.kd_poli', '=', 'poliklinik.kd_poli')
-                ->leftJoin('dokter', 'rp.kd_dokter', '=', 'dokter.kd_dokter')
-                ->leftJoin(DB::raw("(
-                    SELECT tanggalperiksa, kodepoli, COUNT(*) as booked
-                    FROM referensi_mobilejkn_bpjs
-                    GROUP BY tanggalperiksa, kodepoli
-                ) as kuota"), function ($join) {
-                    $join->on('kuota.tanggalperiksa', '=', 'bsk.tgl_rencana')
-                         ->on('kuota.kodepoli', '=', 'rp.kd_poli');
-                })
                 ->where('rp.stts', '!=', 'Batal')
-                ->whereNotNull('bsk.no_surat');
-
-            // Filter search
-            if ($request->filled('search')) {
-                $search = $request->get('search');
-                $query->where(function ($q) use ($search) {
-                    $q->where('pasien.nm_pasien', 'like', "%{$search}%")
-                      ->orWhere('pasien.no_rkm_medis', 'like', "%{$search}%")
-                      ->orWhere('bsk.no_surat', 'like', "%{$search}%")
-                      ->orWhere('bs.no_sep', 'like', "%{$search}%");
-                });
-            }
-
-            // Filter tanggal surat kontrol
-            if ($request->filled('tgl_surat')) {
-                $query->whereDate('bsk.tgl_surat', $request->get('tgl_surat'));
-            }
-
-            // Filter tanggal rencana kontrol
-            if ($request->filled('tgl_rencana')) {
-                $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
-            }
-
-            // Filter poli ini di buat ngakses semua isi poli bukan cuma halaman nya ya 
-            if ($request->filled('poli')) {
-                $query->whereIn('bsk.nm_poli_bpjs', explode(',', $request->get('poli')));
-            }
-
-            // Filter dokter
-            // if ($request->filled('dokter')) {
-            //     $query->where('dokter.nm_dokter', 'like', '%' . $request->get('dokter') . '%');
-            // }
-
-            $query->select(
-                'pasien.no_rkm_medis as no_rm',
-                'pasien.nm_pasien as nama',
-                'bsk.no_surat as no_surat',
-                'bsk.tgl_surat as tgl_surat',
-                'bsk.tgl_rencana as tgl_rencana',
-                'bsk.nm_poli_bpjs as poli',
-                'bsk.nm_dokter_bpjs as dokter',
-                'rp.kd_poli',
-                'rp.kd_dokter',
-                DB::raw("'Belum Booking' as status"),
-                'bs.no_sep as kode_booking',
-                DB::raw('NULL as nomor_antrean'),
-                DB::raw('COALESCE(30 - kuota.booked, 30) as sisa_kuota')
-            )
-            ->orderBy('bsk.tgl_rencana', 'asc')
-            ->orderBy('rp.tgl_registrasi', 'desc');
-
-            // Gunakan simplePaginate agar tidak hitung total record (lebih cepat)
-            $antrean = $query->simplePaginate($perPage);
+                ->whereNotNull('bsk.no_surat')
+                ->whereNotNull('bsk.nm_poli_bpjs')
+                ->select('bsk.nm_poli_bpjs as nm_poli')
+                ->distinct()
+                ->orderBy('bsk.nm_poli_bpjs', 'asc')
+                ->pluck('nm_poli');
 
             return response()->json([
-                'success'      => true,
-                'data'         => $antrean->items(),
-                'current_page' => $antrean->currentPage(),
-                'next_page'    => $antrean->hasMorePages() ? $antrean->currentPage() + 1 : null,
-                'per_page'     => $antrean->perPage(),
+                'success' => true,
+                'data' => $poliList
             ]);
         } catch (\Exception $e) {
-            Log::error('Error list antrean: ' . $e->getMessage(), ['trace' => $e->getTraceAsString()]);
             return response()->json([
                 'success' => false,
-                'message' => 'Error mengambil data rencana kontrol: ' . $e->getMessage()
+                'message' => $e->getMessage()
             ], 500);
         }
     }
@@ -494,34 +540,6 @@ class PublicAntreanController extends Controller
         }
     }
 
-    /**
-     * Get list semua poli untuk dropdown filter
-     */
-    public function getPoliList()
-    {
-        try {
-            $poliList = DB::table('bridging_surat_kontrol_bpjs as bsk')
-                ->join('bridging_sep as bs', 'bsk.no_sep', '=', 'bs.no_sep')
-                ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
-                ->where('rp.stts', '!=', 'Batal')
-                ->whereNotNull('bsk.no_surat')
-                ->whereNotNull('bsk.nm_poli_bpjs')
-                ->select('bsk.nm_poli_bpjs as nm_poli')
-                ->distinct()
-                ->orderBy('bsk.nm_poli_bpjs', 'asc')
-                ->pluck('nm_poli');
-
-            return response()->json([
-                'success' => true,
-                'data' => $poliList
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 500);
-        }
-    }
 
     /**
      * Get list semua dokter untuk dropdown filter

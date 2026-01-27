@@ -9,7 +9,6 @@ import Button from './atoms/button';
 import Input from './atoms/input';
 
 function MainPage() {
-  // ── Semua state di sini ──
   const [antrean, setAntrean] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -34,7 +33,7 @@ function MainPage() {
   const [selectedBatal, setSelectedBatal] = useState(null);
   const [batalLoading, setBatalLoading] = useState(false);
 
-  // ── Fungsi handler ──
+  // ── Handler ──
   const handleAmbil = (item) => {
     setSelectedItem(item);
     setSelectedTanggal(item.tgl_rencana || new Date().toISOString().split('T')[0]);
@@ -45,6 +44,7 @@ function MainPage() {
   const confirmAmbil = async () => {
     if (!selectedItem || !selectedTanggal) return;
     setAmbilLoading(true);
+
     try {
       const res = await axios.post('http://127.0.0.1:8000/api/antrean/ambil', {
         no_rm: selectedItem.no_rm,
@@ -53,14 +53,26 @@ function MainPage() {
         kd_dokter: selectedItem.kd_dokter,
         tgl_antrean: selectedTanggal,
       });
+
       if (res.data.success) {
         setAmbilSuccess(true);
-        fetchAntrean(); // refresh setelah sukses
+
+        // Update lokal supaya UI langsung berubah (optimistic update)
+        setAntrean(prev =>
+          prev.map(item =>
+            item.no_surat === selectedItem.no_surat
+              ? { ...item, isBooked: true }
+              : item
+          )
+        );
+
+        // Optional: refresh full kalau mau pastiin data sinkron dengan backend
+        // fetchAntrean();
       } else {
         alert(res.data.message || 'Gagal mengambil antrean');
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Terjadi kesalahan');
+      alert(err.response?.data?.message || 'Terjadi kesalahan server');
     } finally {
       setAmbilLoading(false);
     }
@@ -71,19 +83,31 @@ function MainPage() {
     setShowBatalModal(true);
   };
 
-  const confirmBatal = () => {
+  const confirmBatal = async () => {   // ← ubah jadi async kalau nanti pakai API batal
     setBatalLoading(true);
-    setTimeout(() => {
+
+    try {
+      // Kalau sudah ada API batal, uncomment & sesuaikan:
+      // const res = await axios.post('http://127.0.0.1:8000/api/antrean/batal', {
+      //   no_surat: selectedBatal.no_surat,
+      // });
+      // if (!res.data.success) throw new Error(res.data.message);
+
+      // Update lokal
       setAntrean(prev =>
-        prev.map(i =>
-          i.no_surat === selectedBatal.no_surat
-            ? { ...i, status: 'Belum Booking', kode_booking: null, nomor_antrean: null }
-            : i
+        prev.map(item =>
+          item.no_surat === selectedBatal.no_surat
+            ? { ...item, isBooked: false }
+            : item
         )
       );
-      setBatalLoading(false);
+
       setShowBatalModal(false);
-    }, 1200);
+    } catch (err) {
+      alert('Gagal membatalkan: ' + (err.message || 'Unknown error'));
+    } finally {
+      setBatalLoading(false);
+    }
   };
 
   const resetFilters = () => {
@@ -93,39 +117,30 @@ function MainPage() {
     setSelectedDokter('');
     setCurrentPage(1);
   };
-  
-useEffect(() => {
-  const fetchPoliList = async () => {
-    try {
-      const res = await axios.get('http://127.0.0.1:8000/api/antrean/poli-list');
-      if (res.data.success) {
-        const poliData = res.data.data || [];
-        
-        // Kalau data adalah array string langsung
-        if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
-          setPoliList([...new Set(poliData)].sort()); // unique & urut alfabet
-        } 
-        // Kalau data adalah array object (contoh: [{nm_poli: "Poli Anak"}, ...])
-        else {
-          const poliNames = poliData
-            .map(item => item.nm_poli || item.nm_poli_bpjs || item.nama_poli || '')
-            .filter(Boolean);
-          setPoliList([...new Set(poliNames)].sort());
+
+  useEffect(() => {
+    const fetchPoliList = async () => {
+      try {
+        const res = await axios.get('http://127.0.0.1:8000/api/antrean/poli-list');
+        if (res.data.success) {
+          const poliData = res.data.data || [];
+          if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
+            setPoliList([...new Set(poliData)].sort());
+          } else {
+            const poliNames = poliData
+              .map(item => item.nm_poli || item.nm_poli_bpjs || item.nama_poli || '')
+              .filter(Boolean);
+            setPoliList([...new Set(poliNames)].sort());
+          }
         }
-      } else {
-        console.warn('Gagal fetch poli-list:', res.data.message);
+      } catch (err) {
+        console.error('Error fetch poli-list:', err);
       }
-    } catch (err) {
-      console.error('Error fetch poli-list:', err);
-      // Optional: set error atau fallback ke empty array
-    }
-  };
+    };
 
-  fetchPoliList();
-}, []); // [] = hanya sekali saat mount
+    fetchPoliList();
+  }, []);
 
-
-  // ── Debounce search ──
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -134,7 +149,6 @@ useEffect(() => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // ── INI BAGIAN YANG PENTING: Fetch antrean public-list ──
   const fetchAntrean = useCallback(async () => {
     setLoading(true);
     setErrorMsg('');
@@ -151,28 +165,29 @@ useEffect(() => {
         }
       });
 
-      if (res.data.success) {
-        const data = res.data.data || [];
-        setAntrean(data);
+    
+        if (res.data.success) {
+        const rawData = res.data.data || [];
+        const mappedData = rawData.map(item => ({
+          ...item,
+          isBooked: !!item.kode_booking,  
+        }));
 
-        // Set total pages (prioritas dari backend, fallback kalau simplePaginate)
-        if (res.data.last_page) {
-          setTotalPages(res.data.last_page);
-        } else {
-          setTotalPages(data.length === perPage ? currentPage + 1 : currentPage);
-        }
+        setAntrean(mappedData);
+
+        setTotalPages(res.data.last_page || 
+                     (mappedData.length === perPage ? currentPage + 1 : currentPage));
       } else {
-        setErrorMsg(res.data.message || 'Gagal memuat data antrean');
+        setErrorMsg(res.data.message || 'Gagal memuat data');
       }
     } catch (err) {
-      console.error('Fetch antrean error:', err);
-      setErrorMsg('Gagal terhubung ke server. Cek backend Laravel.');
+      console.error('Fetch error:', err);
+      setErrorMsg('Gagal terhubung ke server. Cek koneksi atau backend.');
     } finally {
       setLoading(false);
     }
   }, [currentPage, debouncedSearch, selectedDate, selectedPoli, selectedDokter]);
 
-  // Panggil fetch saat komponen mount atau filter berubah
   useEffect(() => {
     fetchAntrean();
   }, [fetchAntrean]);
@@ -181,7 +196,6 @@ useEffect(() => {
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f7ff, #e0f2fe)', padding: '16px 20px' }}>
       <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
 
-        {/* Header */}
         <Card fullWidth>
           <div style={{ padding: '24px', textAlign: 'left' }}>
             <h1 style={{ margin: 0, fontSize: 'clamp(26px, 5vw, 36px)', color: '#1d4ed8' }}>
@@ -193,7 +207,6 @@ useEffect(() => {
           </div>
         </Card>
 
-        {/* Filter */}
         <FilterSection
           searchTerm={searchTerm}
           setSearchTerm={setSearchTerm}
@@ -208,7 +221,6 @@ useEffect(() => {
           setCurrentPage={setCurrentPage}
         />
 
-        {/* Table + Pagination */}
         <AntreanTable
           antrean={antrean}
           loading={loading}
@@ -220,7 +232,6 @@ useEffect(() => {
           handleBatal={handleBatal}
         />
 
-        {/* Modal Ambil */}
         <AmbilModal
           show={showAmbilModal}
           setShow={setShowAmbilModal}
@@ -232,7 +243,6 @@ useEffect(() => {
           confirmAmbil={confirmAmbil}
         />
 
-        {/* Modal Batal */}
         <BatalModal
           show={showBatalModal}
           setShow={setShowBatalModal}
