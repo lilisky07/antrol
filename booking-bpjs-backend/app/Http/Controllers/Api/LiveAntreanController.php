@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
@@ -15,7 +16,7 @@ class SimrsLiveAntreanController extends Controller
     private $username = 'USERNAME_DARI_RS'; // dari tabel password_asuransi
     private $password = 'PASSWORD_DARI_RS';
 
-    public function listRencanaKontrol(Request $request)
+    public function listRencanaKontrol(Request $request): JsonResponse
     {
         try {
             // 1. Ambil token dari endpoint auth bridge
@@ -27,7 +28,8 @@ class SimrsLiveAntreanController extends Controller
             if ($authResponse->failed() || !isset($authResponse['response']['token'])) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Gagal autentikasi ke SIMRS/BPJS bridge: ' . ($authResponse['metadata']['message'] ?? 'Unknown error')
+                    'message' => 'Gagal autentikasi ke SIMRS/BPJS bridge: '
+                        . ($authResponse['metadata']['message'] ?? 'Unknown error'),
                 ], 500);
             }
 
@@ -47,14 +49,14 @@ class SimrsLiveAntreanController extends Controller
             if (!isset($data['metadata']['code']) || $data['metadata']['code'] != 200) {
                 return response()->json([
                     'success' => false,
-                    'message' => $data['metadata']['message'] ?? 'Gagal ambil data rencana kontrol dari SIMRS'
+                    'message' => $data['metadata']['message'] ?? 'Gagal ambil data rencana kontrol dari SIMRS',
                 ], 500);
             }
 
             $list = $data['response']['list'] ?? [];
 
             // Format data sesuai struktur app kamu
-            $antrean = array_map(function($item) {
+            $antrean = array_map(function ($item) {
                 return [
                     'no_rm' => $item['norm'] ?? '-',
                     'nama' => $item['namapasien'] ?? '-',
@@ -64,7 +66,7 @@ class SimrsLiveAntreanController extends Controller
                     'status' => 'Belum Booking',
                     'kode_booking' => $item['nosuratkontrol'] ?? null,
                     'nomor_antrean' => null,
-                    'sisa_kuota' => 0
+                    'sisa_kuota' => 0,
                 ];
             }, $list);
 
@@ -73,12 +75,12 @@ class SimrsLiveAntreanController extends Controller
                 'data' => $antrean,
                 'total' => count($antrean),
                 'current_page' => 1,
-                'last_page' => 1 // sesuaikan kalau API support pagination
+                'last_page' => 1, // sesuaikan kalau API support pagination
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error koneksi ke SIMRS live: ' . $e->getMessage()
+                'message' => 'Error koneksi ke SIMRS live: ' . $e->getMessage(),
             ], 500);
         }
     }

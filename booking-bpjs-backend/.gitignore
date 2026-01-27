@@ -22,3 +22,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+.php-cs-fixer.cache
+.php-cs-fixer.dist.php
