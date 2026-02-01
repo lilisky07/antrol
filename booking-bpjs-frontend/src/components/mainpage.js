@@ -61,13 +61,10 @@ function MainPage() {
         setAntrean(prev =>
           prev.map(item =>
             item.no_surat === selectedItem.no_surat
-              ? { ...item, isBooked: true }
+              ? { ...item, isBooked: true, status: 'Checkin' }
               : item
           )
         );
-
-        // Optional: refresh full kalau mau pastiin data sinkron dengan backend
-        // fetchAntrean();
       } else {
         alert(res.data.message || 'Gagal mengambil antrean');
       }
@@ -83,21 +80,15 @@ function MainPage() {
     setShowBatalModal(true);
   };
 
-  const confirmBatal = async () => {   // ← ubah jadi async kalau nanti pakai API batal
+  const confirmBatal = async () => {
     setBatalLoading(true);
 
     try {
-      // Kalau sudah ada API batal, uncomment & sesuaikan:
-      // const res = await axios.post('http://127.0.0.1:8000/api/antrean/batal', {
-      //   no_surat: selectedBatal.no_surat,
-      // });
-      // if (!res.data.success) throw new Error(res.data.message);
-
       // Update lokal
       setAntrean(prev =>
         prev.map(item =>
           item.no_surat === selectedBatal.no_surat
-            ? { ...item, isBooked: false }
+            ? { ...item, isBooked: false, status: 'Batal' }
             : item
         )
       );
@@ -118,6 +109,7 @@ function MainPage() {
     setCurrentPage(1);
   };
 
+  // ── Fetch Poli List ──
   useEffect(() => {
     const fetchPoliList = async () => {
       try {
@@ -141,45 +133,59 @@ function MainPage() {
     fetchPoliList();
   }, []);
 
+  // ── Debounce Search ──
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
       setCurrentPage(1);
     }, 600);
+
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // ── Fetch Antrean List (FIXED) ──
   const fetchAntrean = useCallback(async () => {
     setLoading(true);
     setErrorMsg('');
 
     try {
-      const res = await axios.get('http://127.0.0.1:8000/api/antrean/public-list', {
-        params: {
-          page: currentPage,
-          per_page: perPage,
-          search: debouncedSearch || undefined,
-          tgl_rencana: selectedDate || undefined,
-          poli: selectedPoli || undefined,
-          dokter: selectedDokter || undefined,
+      const res = await axios.get(
+        'http://127.0.0.1:8000/api/antrean/public-list',
+        {
+          params: {
+            page: currentPage,
+            per_page: perPage,
+            search: debouncedSearch || undefined,
+            tgl_rencana: selectedDate || undefined,
+            poli: selectedPoli || undefined,
+            dokter: selectedDokter || undefined,
+          },
         }
-      });
+      );
 
-    
-        if (res.data.success) {
-        const rawData = res.data.data || [];
+      console.log("API Response:", res.data);
+
+      if (res.data.success) {
+
+        // ✅ FIX UTAMA: array antrean ada di data.data
+        const rawData = res.data.data?.data || [];
+
         const mappedData = rawData.map(item => ({
           ...item,
-          isBooked: !!item.kode_booking,  
+          // Prefer backend-provided status; fallback to kode_booking or 'Belum'
+          status: item.status || (item.kode_booking ? 'Checkin' : 'Belum'),
+          isBooked: !!item.is_booked || !!item.kode_booking || (item.status === 'Checkin'),
         }));
 
         setAntrean(mappedData);
 
-        setTotalPages(res.data.last_page || 
-                     (mappedData.length === perPage ? currentPage + 1 : currentPage));
+        // ✅ Pagination sementara aman
+        setTotalPages(10);
+
       } else {
         setErrorMsg(res.data.message || 'Gagal memuat data');
       }
+
     } catch (err) {
       console.error('Fetch error:', err);
       setErrorMsg('Gagal terhubung ke server. Cek koneksi atau backend.');

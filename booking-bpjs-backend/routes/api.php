@@ -1,11 +1,11 @@
 <?php
 
-use App\Http\Controllers\Api\SimrsLiveAntreanController;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AntreanListController;
 use App\Http\Controllers\Api\PublicAntreanController;
+use App\Http\Controllers\Api\LiveAntreanController;
 
 /*
 |--------------------------------------------------------------------------
@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\PublicAntreanController;
     Route::get('/antrean/public-list', [PublicAntreanController::class, 'list']);
     Route::post('/antrean/ambil', [PublicAntreanController::class, 'ambilAntrean']);
     Route::get('/antrean/cek', [PublicAntreanController::class, 'cekAntrean']);
+    
     Route::get('/antrean/poli-list', [PublicAntreanController::class, 'getPoliList']);
 
     Route::get('/antrean/detail', [PublicAntreanController::class, 'getDetailAntrean']);
@@ -42,13 +43,14 @@ use App\Http\Controllers\Api\PublicAntreanController;
     Route::get('/me', [AuthController::class, 'me']);
     // Route::get('/antrean/poli', [AntreanController::class, 'poli']);
     Route::get('/antrean/list', [AntreanListController::class, 'index']);
+
 });
 
 Route::get('/test-db', function () {
-    try {
-        DB::connection()->getPdo();
-        return 'Koneksi DB sukses!';
-    } catch (\Exception $e) {
-        return 'Koneksi gagal: ' . $e->getMessage();
-    }
+  try {
+    DB::connection()->getPdo();
+    return 'Koneksi DB sukses!';
+  } catch (\Exception $e) {
+    return 'Koneksi gagal: ' . $e->getMessage();
+  }
 });

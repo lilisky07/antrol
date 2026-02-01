@@ -26,4 +26,5 @@ class AmbilAntreanRequest extends FormRequest
             'tgl_antrean' => 'required|string',
         ];
     }
+    
 }

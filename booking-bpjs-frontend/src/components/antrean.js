@@ -85,12 +85,12 @@ function AntreanTable({
                       <td style={{
                         padding: '14px',
                         fontWeight: 600,
-                        color: item.isBooked ? '#16a34a' : '#dc2626'
+                        color: item.status === 'Checkin' ? '#16a34a' : (item.status === 'Gagal' ? '#f97316' : (item.status === 'Batal' ? '#dc2626' : '#6b7280'))
                       }}>
-                        {item.isBooked ? 'Sudah Booking' : 'Belum Booking'}
+                        {item.status || 'Belum'}
                       </td>
                       <td style={{ padding: '14px' }}>
-                        {item.isBooked ? (
+                        {item.status === 'Checkin' ? (
                           <Button 
                             variant="danger" 
                             size="sm" 
@@ -103,6 +103,7 @@ function AntreanTable({
                             variant="success" 
                             size="sm" 
                             onClick={() => handleAmbil(item)}
+                            disabled={item.status === 'Gagal' || item.status === 'Batal'}
                           >
                             Ambil
                           </Button>
