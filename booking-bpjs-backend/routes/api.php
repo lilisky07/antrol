@@ -5,7 +5,6 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AntreanListController;
 use App\Http\Controllers\Api\PublicAntreanController;
-use App\Http\Controllers\Api\LiveAntreanController;
 
 /*
 |--------------------------------------------------------------------------
@@ -34,7 +33,6 @@ use App\Http\Controllers\Api\LiveAntreanController;
 
     
 
-    Route::get('/antrean/live-rencana-kontrol', [LiveAntreanController::class, 'listRencanaKontrol']);
 
     Route::post('/login', [AuthController::class, 'login']);
 
