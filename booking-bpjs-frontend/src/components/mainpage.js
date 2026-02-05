@@ -46,7 +46,7 @@ function MainPage() {
     setAmbilLoading(true);
 
     try {
-      const res = await axios.post('http://192.168.1.128:8000/api/antrean/ambil', {
+      const res = await axios.post('/api/antrean/ambil', {
         no_rm: selectedItem.no_rm,
         no_surat: selectedItem.no_surat,
         kd_poli: selectedItem.kd_poli,
@@ -113,7 +113,7 @@ function MainPage() {
   useEffect(() => {
     const fetchPoliList = async () => {
       try {
-        const res = await axios.get('http://192.168.1.128:8000/api/antrean/poli-list');
+        const res = await axios.get('/api/antrean/poli-list');
         if (res.data.success) {
           const poliData = res.data.data || [];
           if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
@@ -150,7 +150,7 @@ function MainPage() {
 
     try {
       const res = await axios.get(
-        'http://192.168.1.128:8000/api/antrean/public-list',
+        '/api/antrean/public-list',
         {
           params: {
             page: currentPage,
