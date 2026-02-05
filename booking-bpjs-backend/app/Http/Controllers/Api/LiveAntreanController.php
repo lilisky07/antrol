@@ -7,7 +7,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 
-class SimrsLiveAntreanController extends Controller
+class LiveAntreanController extends Controller
 {
     // GANTI DENGAN URL API BRIDGE SIMRS LIVE RS GLADISH (minta RS kasih ini)
     private $apiUrl = 'http://simrs.rsgladish.com/api-bpjsfktl/'; // CONTOH SAJA
