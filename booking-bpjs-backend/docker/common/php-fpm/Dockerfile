@@ -1,9 +1,4 @@
-# Stage 1: Build environment and Composer dependencies
 FROM php:8.4-fpm AS builder
-
-# Install system dependencies and PHP extensions for Laravel with MySQL/PostgreSQL support.
-# Dependencies in this stage are only required for building the final image.
-# Node.js and asset building are handled in the Nginx stage, not here.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
@@ -29,24 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory inside the container
 WORKDIR /var/www
-
-# Copy the entire Laravel application code into the container
-# -----------------------------------------------------------
-# In Laravel, `composer install` may trigger scripts
-# needing access to application code.
-# For example, the `post-autoload-dump` event might execute
-# Artisan commands like `php artisan package:discover`. If the
-# application code (including the `artisan` file) is not
-# present, these commands will fail, leading to build errors.
-#
-# By copying the entire application code before running
-# `composer install`, we ensure that all necessary files are
-# available, allowing these scripts to run successfully.
-# In other cases, it would be possible to copy composer files
-# first, to leverage Docker's layer caching mechanism.
-# -----------------------------------------------------------
 COPY . /var/www
 
 # Install Composer and dependencies
@@ -98,13 +76,13 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 #RUN sed -i 's/variables_order = "GPCS"/variables_order = "EGPCS"/' "$PHP_INI_DIR/php.ini"
 
 # Copy the application code and dependencies from the build stage
-COPY --from=builder /var/www /var/www
+COPY --from=builder /var/www /var/www/backend
 
 # Set working directory
-WORKDIR /var/www
+WORKDIR /var/www/backend
 
 # Ensure correct permissions
-RUN chown -R www-data:www-data /var/www
+RUN chown -R www-data:www-data /var/www/backend
 
 # Switch to the non-privileged user to run the application
 USER www-data

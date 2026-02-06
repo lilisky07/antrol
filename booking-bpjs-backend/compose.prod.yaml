@@ -5,18 +5,15 @@ services:
       dockerfile: ./docker/production/nginx/Dockerfile
     restart: unless-stopped
     volumes:
-      # Laravel source (read-only)
-      - ./:/var/www/backend:ro
-
-      # React build (read-only)
       - ../booking-bpjs-frontend/build:/var/www/frontend:ro
-
-      # Laravel storage
-      - laravel-storage-production:/var/www/storage:ro
+      - laravel-storage-production:/var/www/storage
+      - laravel-prod:/var/www/backend
     networks:
       - laravel-production
     ports:
       - "8080:80"
+    env_file:
+      - .env
    
 
   php-fpm:
@@ -27,14 +24,15 @@ services:
       target: production # Use the 'production' stage in the Dockerfile
     restart: unless-stopped
     volumes:
-      - laravel-storage-production:/var/www/storage # Mount the storage volume
+      - laravel-storage-production:/var/www/storage
+      - laravel-prod:/var/www/backend
     env_file:
       - .env
     networks:
       - laravel-production
 networks:
- 
   laravel-production:
 
 volumes:
   laravel-storage-production:
+  laravel-prod:
