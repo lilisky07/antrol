@@ -8,16 +8,16 @@ function App() {
     <Router>
       <Routes>
         {/* Langsung redirect ke dashboard kalau akses root / */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/" element={<Navigate to="/bookingbpjs" replace />} />
 
         {/* Route dashboard */}
-        <Route path="/dashboard" element={<MainPage />} />
+        <Route path="/bookingbpjs" element={<MainPage />} />
 
         {/* Optional: Kalau mau home tetap ada (misal /home), bisa uncomment */}
         {/* <Route path="/home" element={<Home />} /> */}
 
         {/* Catch all route (kalau ketik URL lain) langsung ke dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/bookingbpjs" replace />} />
       </Routes>
     </Router>
   );
