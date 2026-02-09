@@ -83,7 +83,7 @@ function MainPage() {
 
   setCekKuotaLoading(true);
   try {
-    const res = await axios.get('/api/antrean/cek', {
+    const res = await axios.get('/api/antrean/sisakuota', {
       params: {
         kd_poli: item.kd_poli,
         kd_dokter: item.kd_dokter,

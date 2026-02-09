@@ -134,18 +134,15 @@ public function list(Request $request): JsonResponse
             ->where('rp.stts', '!=', 'Batal')
             ->whereNotNull('bsk.no_surat');
 
-        // Filter tanggal rencana - hanya data hari ini dan ke depan
-        if ($request->filled('tgl_rencana')) {
-            // Kalau user pilih tanggal spesifik
-            $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
-        }else {
-            // Default: 3 bulan ke belakang sampai 3 bulan ke depan
-            $startDate = now()->subMonths(3)->startOfDay()->format('Y-m-d');
-            $endDate = now()->addMonths(3)->endOfDay()->format('Y-m-d');
-            
-            $query->whereDate('bsk.tgl_rencana', '>=', $startDate)
-                  ->whereDate('bsk.tgl_rencana', '<=', $endDate);
-        }
+       // Filter tanggal rencana
+if ($request->filled('tgl_rencana')) {
+    // Kalau user pilih tanggal
+    $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
+} else {
+    // Default: HARI INI SAJA
+    $query->whereDate('bsk.tgl_rencana', now()->toDateString());
+}
+
 
 
         if ($request->filled('search')) {
@@ -608,6 +605,8 @@ public function list(Request $request): JsonResponse
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
+
+    
 
     public function getDetailAntrean(Request $request)
     {

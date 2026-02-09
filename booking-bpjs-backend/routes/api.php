@@ -23,7 +23,7 @@ use App\Http\Controllers\Api\PublicAntreanController;
     Route::get('/antrean/public-list', [PublicAntreanController::class, 'list']);
     Route::post('/antrean/ambil', [PublicAntreanController::class, 'ambilAntrean']);
     Route::get('/antrean/cek', [PublicAntreanController::class, 'cekAntrean']);
-    
+    Route::post('/antrean/sisakuota', [PublicAntreanController::class, 'nomorAntrean']); 
     Route::get('/antrean/poli-list', [PublicAntreanController::class, 'getPoliList']);
 
     Route::get('/antrean/detail', [PublicAntreanController::class, 'getDetailAntrean']);
