@@ -12,7 +12,9 @@ function AmbilModal({
   setSelectedTanggal,
   ambilLoading,
   ambilSuccess,
-  confirmAmbil
+  confirmAmbil,
+  sisaKuota,            
+  cekKuotaLoading      
 }) {
   if (!show || !selectedItem) return null;
 
@@ -76,32 +78,43 @@ function AmbilModal({
           />
         </div>
 
-        <div style={{
-          padding: '16px',
-          background: selectedItem.sisa_kuota <= 5 ? '#fee2e2' : '#ecfdf5',
-          borderRadius: '12px',
-          textAlign: 'center',
-          marginBottom: '28px',
-          fontSize: '18px',
-          fontWeight: 600
-        }}>
-          Sisa Kuota: {selectedItem.sisa_kuota || 0}
-          {selectedItem.sisa_kuota <= 5 && selectedItem.sisa_kuota > 0 && (
-            <div style={{ fontSize: '14px', marginTop: '8px', color: '#dc2626' }}>
-              ⚠️ Kuota hampir habis!
-            </div>
+        {/* 🔥 SISA KUOTA DARI ENDPOINT */}
+        <div
+          style={{
+            padding: '16px',
+            background: sisaKuota <= 5 ? '#fee2e2' : '#ecfdf5',
+            borderRadius: '12px',
+            textAlign: 'center',
+            marginBottom: '28px',
+            fontSize: '18px',
+            fontWeight: 600
+          }}
+        >
+          {cekKuotaLoading ? (
+            'Cek kuota...'
+          ) : (
+            <>
+              Sisa Kuota: {sisaKuota ?? 0}
+              {sisaKuota <= 5 && sisaKuota > 0 && (
+                <div style={{ fontSize: '14px', marginTop: '8px', color: '#dc2626' }}>
+                  ⚠️ Kuota hampir habis!
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {ambilSuccess ? (
-          <div style={{
-            padding: '20px',
-            background: '#ecfdf5',
-            borderRadius: '12px',
-            textAlign: 'center',
-            color: '#065f46',
-            marginBottom: '20px'
-          }}>
+          <div
+            style={{
+              padding: '20px',
+              background: '#ecfdf5',
+              borderRadius: '12px',
+              textAlign: 'center',
+              color: '#065f46',
+              marginBottom: '20px'
+            }}
+          >
             <strong style={{ fontSize: '20px' }}>✓ Berhasil diambil!</strong><br />
             <p style={{ marginTop: '12px' }}>List antrean telah di-refresh.</p>
           </div>
@@ -113,7 +126,7 @@ function AmbilModal({
             <Button
               variant="success"
               onClick={confirmAmbil}
-              disabled={ambilLoading || !selectedTanggal}
+              disabled={ambilLoading || !selectedTanggal || sisaKuota <= 0}
             >
               {ambilLoading ? 'Memproses...' : 'Ambil Antrean'}
             </Button>

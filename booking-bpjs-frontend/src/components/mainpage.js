@@ -28,6 +28,9 @@ function MainPage() {
   const [ambilLoading, setAmbilLoading] = useState(false);
   const [ambilSuccess, setAmbilSuccess] = useState(false);
   const [selectedTanggal, setSelectedTanggal] = useState('');
+  const [sisaKuota, setSisaKuota] = useState(null);
+  const [cekKuotaLoading, setCekKuotaLoading] = useState(false);
+
 
   const [showBatalModal, setShowBatalModal] = useState(false);
   const [selectedBatal, setSelectedBatal] = useState(null);
@@ -74,6 +77,40 @@ function MainPage() {
       setAmbilLoading(false);
     }
   };
+
+  const cekSisaKuota = async (item, tanggal) => {
+  if (!item || !tanggal) return;
+
+  setCekKuotaLoading(true);
+  try {
+    const res = await axios.get('/api/antrean/cek', {
+      params: {
+        kd_poli: item.kd_poli,
+        kd_dokter: item.kd_dokter,
+        tanggal: tanggal,
+      },
+    });
+
+    if (res.data.success) {
+      setSisaKuota(res.data.sisa_kuota ?? 0);
+    } else {
+      setSisaKuota(0);
+    }
+  } catch (err) {
+    console.error('Error cek sisa kuota:', err);
+    setSisaKuota(0);
+  } finally {
+    setCekKuotaLoading(false);
+  }
+};
+
+useEffect(() => {
+  if (showAmbilModal && selectedItem && selectedTanggal) {
+    cekSisaKuota(selectedItem, selectedTanggal);
+  }
+}, [showAmbilModal, selectedItem, selectedTanggal]);
+
+
 
   const handleBatal = (item) => {
     setSelectedBatal(item);
@@ -238,16 +275,19 @@ function MainPage() {
           handleBatal={handleBatal}
         />
 
-        <AmbilModal
-          show={showAmbilModal}
-          setShow={setShowAmbilModal}
-          selectedItem={selectedItem}
-          selectedTanggal={selectedTanggal}
-          setSelectedTanggal={setSelectedTanggal}
-          ambilLoading={ambilLoading}
-          ambilSuccess={ambilSuccess}
-          confirmAmbil={confirmAmbil}
-        />
+       <AmbilModal
+  show={showAmbilModal}
+  setShow={setShowAmbilModal}
+  selectedItem={selectedItem}
+  selectedTanggal={selectedTanggal}
+  setSelectedTanggal={setSelectedTanggal}
+  ambilLoading={ambilLoading}
+  ambilSuccess={ambilSuccess}
+  confirmAmbil={confirmAmbil}
+  sisaKuota={sisaKuota}
+  cekKuotaLoading={cekKuotaLoading}
+/>
+
 
         <BatalModal
           show={showBatalModal}
