@@ -8,8 +8,8 @@ import Card from './atoms/card';
 import Button from './atoms/button';
 import Input from './atoms/input';
 
-// // ← Tambahkan ini di atas (bisa diganti ke .env nanti)
-// const API_BASE_URL = 'http://127.0.0.1:8000';  // atau http://localhost:8000 kalau prefer
+// ← Tambahkan ini di atas (bisa diganti ke .env nanti)
+const API_BASE_URL = 'http://127.0.0.1:8000';  // atau http://localhost:8000 kalau prefer
 
 function MainPage() {
   const [antrean, setAntrean] = useState([]);
@@ -51,7 +51,7 @@ function MainPage() {
     setAmbilLoading(true);
 
     try {
-     const res = await axios.post('/api/antrean/ambil', {
+      const res = await axios.post(`${API_BASE_URL}/api/antrean/ambil`, {
         no_rm: selectedItem.no_rm,
         no_surat: selectedItem.no_surat,
         kd_poli: selectedItem.kd_poli,
@@ -82,7 +82,7 @@ function MainPage() {
     if (!item || !tanggal) return;
     setCekKuotaLoading(true);
     try {
-      const res = await axios.get(`/api/antrean/sisakuota`, {
+      const res = await axios.get(`${API_BASE_URL}/api/antrean/sisakuota`, {
         params: {
           kd_poli: item.kd_poli,
           kd_dokter: item.kd_dokter,
@@ -144,7 +144,7 @@ function MainPage() {
   useEffect(() => {
     const fetchPoliList = async () => {
       try {
-        const res = await axios.get(`/api/antrean/poli-list`);
+        const res = await axios.get(`${API_BASE_URL}/api/antrean/poli-list`);
         if (res.data.success) {
           const poliData = res.data.data || [];
           if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
@@ -179,7 +179,7 @@ function MainPage() {
     setErrorMsg('');
     try {
       const res = await axios.get(
-        `/api/antrean/public-list`,
+        `${API_BASE_URL}/api/antrean/public-list`,
         {
           params: {
             page: currentPage,
