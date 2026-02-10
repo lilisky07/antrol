@@ -438,9 +438,16 @@ public function list(Request $request): JsonResponse
             'nomorantrean'      => str_pad($nomorAntrean, 3, '0', STR_PAD_LEFT),
             'angkaantrean'      => $nomorAntrean,
             'estimasidilayani'  => $estimasiWaktu,
-            'sisakuotajkn'      => $jadwal->kuota - $nomorAntrean,
-            'kuotajkn'          => $jadwal->kuota,
-            'status'            => 'Booking',
+            
+            // Kolom kuota JKN (sudah ada, tapi pastikan)
+            'sisakuotajkn'      => $jadwal->kuota - $nomorAntrean,  // sisa kuota JKN
+            'kuotajkn'          => $jadwal->kuota,                   // total kuota JKN
+            
+            // Kolom wajib NON-JKN → isi 0 kalau tidak dipakai, atau hitung kalau ada logicnya
+            'sisakuotanonjkn'   => 0,   // ← TAMBAHKAN: isi 0 atau hitung kalau ada kuota non-BPJS
+            'kuotanonjkn'       => 0,   // ← TAMBAHKAN: isi 0 atau nilai default
+            
+            'status'            => 'Belum',
             'validasi'          => now(),
         ];
 
