@@ -8,8 +8,8 @@ import Card from './atoms/card';
 import Button from './atoms/button';
 import Input from './atoms/input';
 
-// ← Hilangkan API_BASE_URL hardcode, pakai relative path saja
-// Untuk production: semua request ke /api/... akan dihandle oleh server yang sama
+// // ← Tambahkan ini di atas (bisa diganti ke .env nanti)
+// const API_BASE_URL = 'http://127.0.0.1:8000';  // atau http://localhost:8000 kalau prefer
 
 function MainPage() {
   const [antrean, setAntrean] = useState([]);
@@ -51,7 +51,7 @@ function MainPage() {
     setAmbilLoading(true);
 
     try {
-      const res = await axios.post('/api/antrean/ambil', {  // ← relative path
+     const res = await axios.post('/api/antrean/ambil', {
         no_rm: selectedItem.no_rm,
         no_surat: selectedItem.no_surat,
         kd_poli: selectedItem.kd_poli,
@@ -82,7 +82,7 @@ function MainPage() {
     if (!item || !tanggal) return;
     setCekKuotaLoading(true);
     try {
-      const res = await axios.get('/api/antrean/sisakuota', {  // ← relative path
+      const res = await axios.get(`/api/antrean/sisakuota`, {
         params: {
           kd_poli: item.kd_poli,
           kd_dokter: item.kd_dokter,
@@ -109,13 +109,42 @@ function MainPage() {
     }
   }, [showAmbilModal, selectedItem, selectedTanggal]);
 
-  // ... (handler lain tetap sama)
+  const handleBatal = (item) => {
+    setSelectedBatal(item);
+    setShowBatalModal(true);
+  };
+
+  const confirmBatal = async () => {
+    setBatalLoading(true);
+    try {
+      setAntrean(prev =>
+        prev.map(item =>
+          item.no_surat === selectedBatal.no_surat
+            ? { ...item, isBooked: false, status: 'Batal' }
+            : item
+        )
+      );
+      setShowBatalModal(false);
+    } catch (err) {
+      alert('Gagal membatalkan: ' + (err.message || 'Unknown error'));
+    } finally {
+      setBatalLoading(false);
+    }
+  };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setSelectedDate('');
+    setSelectedPoli('');
+    setSelectedDokter('');
+    setCurrentPage(1);
+  };
 
   // ── Fetch Poli List ──
   useEffect(() => {
     const fetchPoliList = async () => {
       try {
-        const res = await axios.get('/api/antrean/poli-list');  // ← relative
+        const res = await axios.get(`/api/antrean/poli-list`);
         if (res.data.success) {
           const poliData = res.data.data || [];
           if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
@@ -135,21 +164,33 @@ function MainPage() {
     fetchPoliList();
   }, []);
 
+  // ── Debounce Search ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   // ── Fetch Antrean List ──
   const fetchAntrean = useCallback(async () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      const res = await axios.get('/api/antrean/public-list', {  // ← relative
-        params: {
-          page: currentPage,
-          per_page: perPage,
-          search: debouncedSearch || undefined,
-          tgl_rencana: selectedDate || undefined,
-          poli: selectedPoli || undefined,
-          dokter: selectedDokter || undefined,
-        },
-      });
+      const res = await axios.get(
+        `/api/antrean/public-list`,
+        {
+          params: {
+            page: currentPage,
+            per_page: perPage,
+            search: debouncedSearch || undefined,
+            tgl_rencana: selectedDate || undefined,
+            poli: selectedPoli || undefined,
+            dokter: selectedDokter || undefined,
+          },
+        }
+      );
 
       console.log("API Response:", res.data);
 
@@ -161,7 +202,7 @@ function MainPage() {
           isBooked: !!item.is_booked || !!item.kode_booking || (item.status === 'Checkin'),
         }));
         setAntrean(mappedData);
-        setTotalPages(10);
+        setTotalPages(10); // nanti bisa diganti dari res.data jika ada pagination real
       } else {
         setErrorMsg(res.data.message || 'Gagal memuat data');
       }
@@ -177,8 +218,68 @@ function MainPage() {
     fetchAntrean();
   }, [fetchAntrean]);
 
-  // return JSX tetap sama
-  // ...
+  return (
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f7ff, #e0f2fe)', padding: '16px 20px' }}>
+      <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
+        <Card fullWidth>
+          <div style={{ padding: '24px', textAlign: 'left' }}>
+            <h1 style={{ margin: 0, fontSize: 'clamp(26px, 5vw, 36px)', color: '#1d4ed8' }}>
+              Booking Antrean BPJS Online
+            </h1>
+            <p style={{ color: '#64748b', marginTop: '8px', fontSize: '18px' }}>
+              RS Gladish Medical Centre - Sistem Petugas
+            </p>
+          </div>
+        </Card>
+
+        <FilterSection
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          selectedPoli={selectedPoli}
+          setSelectedPoli={setSelectedPoli}
+          selectedDokter={selectedDokter}
+          setSelectedDokter={setSelectedDokter}
+          poliList={poliList}
+          resetFilters={resetFilters}
+          setCurrentPage={setCurrentPage}
+        />
+
+        <AntreanTable
+          antrean={antrean}
+          loading={loading}
+          errorMsg={errorMsg}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          setCurrentPage={setCurrentPage}
+          handleAmbil={handleAmbil}
+          handleBatal={handleBatal}
+        />
+
+        <AmbilModal
+          show={showAmbilModal}
+          setShow={setShowAmbilModal}
+          selectedItem={selectedItem}
+          selectedTanggal={selectedTanggal}
+          setSelectedTanggal={setSelectedTanggal}
+          ambilLoading={ambilLoading}
+          ambilSuccess={ambilSuccess}
+          confirmAmbil={confirmAmbil}
+          sisaKuota={sisaKuota}
+          cekKuotaLoading={cekKuotaLoading}
+        />
+
+        <BatalModal
+          show={showBatalModal}
+          setShow={setShowBatalModal}
+          selectedBatal={selectedBatal}
+          batalLoading={batalLoading}
+          confirmBatal={confirmBatal}
+        />
+      </div>
+    </div>
+  );
 }
 
 export default MainPage;
