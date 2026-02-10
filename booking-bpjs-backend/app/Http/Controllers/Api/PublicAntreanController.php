@@ -117,34 +117,35 @@ public function list(Request $request): JsonResponse
 {
     try {
         $query = DB::table('bridging_surat_kontrol_bpjs as bsk')
+            // Mulai dari tabel utama yang punya filter tanggal (biasanya paling selektif)
+            ->whereNotNull('bsk.no_surat')
+            // Join hanya yang benar-benar dibutuhkan, urut dari yang kecil ke besar
             ->join('bridging_sep as bs', 'bsk.no_sep', '=', 'bs.no_sep')
             ->join('reg_periksa as rp', 'bs.no_rawat', '=', 'rp.no_rawat')
+            ->where('rp.stts', '!=', 'Batal')  // filter ini setelah join rp
             ->join('pasien', 'rp.no_rkm_medis', '=', 'pasien.no_rkm_medis')
             ->join('maping_poli_bpjs as maping_poli', 'maping_poli.kd_poli_bpjs', '=', 'bsk.kd_poli_bpjs')
             ->join('maping_dokter_dpjpvclaim as maping_dokter', 'maping_dokter.kd_dokter_bpjs', '=', 'bsk.kd_dokter_bpjs')
             ->join('dokter', 'dokter.kd_dokter', '=', 'maping_dokter.kd_dokter')
             ->join('poliklinik', 'poliklinik.kd_poli', '=', 'maping_poli.kd_poli_rs')
-            // LEFT JOIN yang berat dipindah ke subquery
+            // Subquery left join tetap, tapi pastikan tabel referensi_mobilejkn_bpjs punya index
             ->leftJoin(
                 DB::raw('(SELECT nomorreferensi, no_rawat, status as status_rmb
                          FROM referensi_mobilejkn_bpjs
                          WHERE status IN ("Gagal","Batal","Belum","Checkin")) as rmb'),
                 'rmb.nomorreferensi', '=', 'bsk.no_surat'
-            )
-            ->where('rp.stts', '!=', 'Batal')
-            ->whereNotNull('bsk.no_surat');
+            );
 
-       // Filter tanggal rencana
-if ($request->filled('tgl_rencana')) {
-    // Kalau user pilih tanggal
-    $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
-} else {
-    // Default: HARI INI SAJA
-    $query->whereDate('bsk.tgl_rencana', now()->toDateString());
-}
+        // Filter tanggal - tetap seperti request kamu (hari ini +30 hari default)
+        if ($request->filled('tgl_rencana')) {
+            $query->whereDate('bsk.tgl_rencana', $request->get('tgl_rencana'));
+        } else {
+            $startDate = now()->startOfDay()->format('Y-m-d');
+            $endDate   = now()->addDays(30)->endOfDay()->format('Y-m-d');
+            $query->whereBetween('bsk.tgl_rencana', [$startDate, $endDate]);  // Lebih efisien daripada 2 whereDate
+        }
 
-
-
+        // Search: gunakan index-friendly seperti BINARY atau fulltext kalau sering search nama
         if ($request->filled('search')) {
             $search = $request->get('search');
             $query->where(function ($q) use ($search) {
@@ -168,6 +169,7 @@ if ($request->filled('tgl_rencana')) {
             $query->where('dokter.nm_dokter', 'like', '%' . $request->get('dokter') . '%');
         }
 
+        // Select tetap
         $query->select(
             'pasien.no_rkm_medis as no_rm',
             'pasien.nm_pasien as nama',
@@ -184,24 +186,28 @@ if ($request->filled('tgl_rencana')) {
             DB::raw('NULL as nomor_antrean')
         );
 
-        // Urutkan ASC agar yang paling dekat duluan (hari ini, besok, lusa, dst)
-        $query->orderBy('bsk.tgl_rencana', 'desc')
+        // Order by: ASC untuk tgl_rencana (terdekat duluan) + index wajib di kolom ini
+        $query->orderBy('bsk.tgl_rencana', 'asc')
               ->orderBy('bsk.tgl_surat', 'desc');
 
-        $perPage = min((int) $request->get('per_page', 20), 50); // Max 50 per page
-        
-        $poliList = $query->paginate($perPage);
+        $perPage = min((int) $request->get('per_page', 20), 50);
+
+        // Ganti ke simplePaginate() untuk hilangkan COUNT(*) query ekstra → loading jauh lebih cepat
+        // Cocok kalau di frontend kamu tidak butuh "total halaman" akurat (cukup Next/Prev)
+        $data = $query->simplePaginate($perPage);
+
+        // Kalau tetap butuh total halaman, pakai paginate() tapi pastikan index sudah ada
 
         return response()->json([
             'success' => true,
-            'data' => $poliList
+            'data'    => $data
         ]);
     } catch (\Exception $e) {
         Log::error('Error list antrean', [
             'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'trace'   => $e->getTraceAsString()
         ]);
-        
+
         return response()->json([
             'success' => false,
             'message' => 'Error mengambil data rencana kontrol: ' . $e->getMessage(),
@@ -501,35 +507,72 @@ if ($request->filled('tgl_rencana')) {
         return $hari[$tanggal->dayOfWeek];
     }
 
-    public function nomorAntrean(NomorAntreanRequest $request): JsonResponse
-    {
-        $tgl_antrean = Carbon::parse($request->tgl_antrean);
-        $weekday = $this->getNamaHari($tgl_antrean);
+   public function sisaKuota(Request $request): JsonResponse
+{
+    try {
+        $kd_poli   = $request->query('kd_poli');
+        $kd_dokter = $request->query('kd_dokter');
+        $tanggal   = $request->query('tanggal');
 
-        $data = DB::table("jadwal")
-            ->where('kd_dokter', $request->kd_dokter)
+        if (!$kd_poli || !$kd_dokter || !$tanggal) {
+            return response()->json([
+                'success'    => false,
+                'message'    => 'Parameter kd_poli, kd_dokter, tanggal wajib',
+                'sisa_kuota' => 0
+            ], 400);
+        }
+
+        $tgl_antrean = Carbon::parse($tanggal);
+        $weekday     = $this->getNamaHari($tgl_antrean);
+
+        // Ambil kuota dari jadwal (tanpa filter kd_poli kalau tabel jadwal tidak punya kolom itu)
+        $jadwal = DB::table('jadwal')
+            ->where('kd_dokter', $kd_dokter)
             ->where('hari_kerja', $weekday)
             ->first(['kuota']);
 
-        if (!$data) {
-            throw ValidationException::withMessages([
-                "kd_dokter" => "Tidak ada jadwal dokter pada tanggal tersebut",
+        if (!$jadwal) {
+            return response()->json([
+                'success'    => true,
+                'sisa_kuota' => 0,
+                'message'    => 'Tidak ada jadwal dokter pada hari tersebut'
             ]);
         }
 
-        $count_regis = DB::table('reg_periksa')
-            ->where('tgl_registrasi', $tgl_antrean->format('Y-m-d'))
-            ->where('kd_dokter', $request->kd_dokter)
-            ->where('stts', '<>', 'Batal')
+        // Hitung terpakai: pakai kolom yang BENAR di tabel referensi_mobilejkn_bpjs
+        $sudahTerpakai = DB::table('referensi_mobilejkn_bpjs')
+            ->whereDate('tanggalperiksa', $tgl_antrean->format('Y-m-d'))  // ← ini kolom yang benar!
+            ->where('kodedokter', $kd_dokter)
+            // ->where('kodepoli', $kd_poli)   // uncomment kalau mau filter poli (kolomnya kodepoli)
+            ->whereIn('status', ['Belum', 'Checkin', 'Booking'])
             ->count();
 
+        $sisa = max(0, (int)$jadwal->kuota - $sudahTerpakai);
+
         return response()->json([
-            'success' => true,
-            'data' => [
-                'sisa_kuota' => $data->kuota - $count_regis,
-            ],
+            'success'     => true,
+            'sisa_kuota'  => $sisa,
+            'total_kuota' => (int)$jadwal->kuota,
+            'terpakai'    => $sudahTerpakai,
+            'debug'       => [
+                'tanggal'   => $tgl_antrean->format('Y-m-d'),
+                'weekday'   => $weekday
+            ]
         ]);
+    } catch (\Exception $e) {
+        Log::error('Error sisaKuota', [
+            'message' => $e->getMessage(),
+            'trace'   => $e->getTraceAsString(),
+            'params'  => $request->query()
+        ]);
+
+        return response()->json([
+            'success'    => false,
+            'message'    => 'Gagal hitung sisa kuota: ' . $e->getMessage(),
+            'sisa_kuota' => 0
+        ], 500);
     }
+}
 
     public function cekAntrean(Request $request): JsonResponse
     {

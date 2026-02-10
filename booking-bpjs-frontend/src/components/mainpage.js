@@ -8,6 +8,9 @@ import Card from './atoms/card';
 import Button from './atoms/button';
 import Input from './atoms/input';
 
+// ← Tambahkan ini di atas (bisa diganti ke .env nanti)
+const API_BASE_URL = 'http://localhost:8080';  // atau http://localhost:8000 kalau prefer
+
 function MainPage() {
   const [antrean, setAntrean] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +34,6 @@ function MainPage() {
   const [sisaKuota, setSisaKuota] = useState(null);
   const [cekKuotaLoading, setCekKuotaLoading] = useState(false);
 
-
   const [showBatalModal, setShowBatalModal] = useState(false);
   const [selectedBatal, setSelectedBatal] = useState(null);
   const [batalLoading, setBatalLoading] = useState(false);
@@ -49,7 +51,7 @@ function MainPage() {
     setAmbilLoading(true);
 
     try {
-      const res = await axios.post('/api/antrean/ambil', {
+      const res = await axios.post(`${API_BASE_URL}/api/antrean/ambil`, {
         no_rm: selectedItem.no_rm,
         no_surat: selectedItem.no_surat,
         kd_poli: selectedItem.kd_poli,
@@ -59,8 +61,6 @@ function MainPage() {
 
       if (res.data.success) {
         setAmbilSuccess(true);
-
-        // Update lokal supaya UI langsung berubah (optimistic update)
         setAntrean(prev =>
           prev.map(item =>
             item.no_surat === selectedItem.no_surat
@@ -79,38 +79,35 @@ function MainPage() {
   };
 
   const cekSisaKuota = async (item, tanggal) => {
-  if (!item || !tanggal) return;
+    if (!item || !tanggal) return;
+    setCekKuotaLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/antrean/sisakuota`, {
+        params: {
+          kd_poli: item.kd_poli,
+          kd_dokter: item.kd_dokter,
+          tanggal: tanggal,
+        },
+      });
 
-  setCekKuotaLoading(true);
-  try {
-    const res = await axios.get('/api/antrean/sisakuota', {
-      params: {
-        kd_poli: item.kd_poli,
-        kd_dokter: item.kd_dokter,
-        tanggal: tanggal,
-      },
-    });
-
-    if (res.data.success) {
-      setSisaKuota(res.data.sisa_kuota ?? 0);
-    } else {
+      if (res.data.success) {
+        setSisaKuota(res.data.sisa_kuota ?? 0);
+      } else {
+        setSisaKuota(0);
+      }
+    } catch (err) {
+      console.error('Error cek sisa kuota:', err);
       setSisaKuota(0);
+    } finally {
+      setCekKuotaLoading(false);
     }
-  } catch (err) {
-    console.error('Error cek sisa kuota:', err);
-    setSisaKuota(0);
-  } finally {
-    setCekKuotaLoading(false);
-  }
-};
+  };
 
-useEffect(() => {
-  if (showAmbilModal && selectedItem && selectedTanggal) {
-    cekSisaKuota(selectedItem, selectedTanggal);
-  }
-}, [showAmbilModal, selectedItem, selectedTanggal]);
-
-
+  useEffect(() => {
+    if (showAmbilModal && selectedItem && selectedTanggal) {
+      cekSisaKuota(selectedItem, selectedTanggal);
+    }
+  }, [showAmbilModal, selectedItem, selectedTanggal]);
 
   const handleBatal = (item) => {
     setSelectedBatal(item);
@@ -119,9 +116,7 @@ useEffect(() => {
 
   const confirmBatal = async () => {
     setBatalLoading(true);
-
     try {
-      // Update lokal
       setAntrean(prev =>
         prev.map(item =>
           item.no_surat === selectedBatal.no_surat
@@ -129,7 +124,6 @@ useEffect(() => {
             : item
         )
       );
-
       setShowBatalModal(false);
     } catch (err) {
       alert('Gagal membatalkan: ' + (err.message || 'Unknown error'));
@@ -150,7 +144,7 @@ useEffect(() => {
   useEffect(() => {
     const fetchPoliList = async () => {
       try {
-        const res = await axios.get('/api/antrean/poli-list');
+        const res = await axios.get(`${API_BASE_URL}/api/antrean/poli-list`);
         if (res.data.success) {
           const poliData = res.data.data || [];
           if (Array.isArray(poliData) && typeof poliData[0] === 'string') {
@@ -176,18 +170,16 @@ useEffect(() => {
       setDebouncedSearch(searchTerm);
       setCurrentPage(1);
     }, 600);
-
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // ── Fetch Antrean List (FIXED) ──
+  // ── Fetch Antrean List ──
   const fetchAntrean = useCallback(async () => {
     setLoading(true);
     setErrorMsg('');
-
     try {
       const res = await axios.get(
-        '/api/antrean/public-list',
+        `${API_BASE_URL}/api/antrean/public-list`,
         {
           params: {
             page: currentPage,
@@ -203,26 +195,17 @@ useEffect(() => {
       console.log("API Response:", res.data);
 
       if (res.data.success) {
-
-        // ✅ FIX UTAMA: array antrean ada di data.data
         const rawData = res.data.data?.data || [];
-
         const mappedData = rawData.map(item => ({
           ...item,
-          // Prefer backend-provided status; fallback to kode_booking or 'Belum'
           status: item.status || (item.kode_booking ? 'Checkin' : 'Belum'),
           isBooked: !!item.is_booked || !!item.kode_booking || (item.status === 'Checkin'),
         }));
-
         setAntrean(mappedData);
-
-        // ✅ Pagination sementara aman
-        setTotalPages(10);
-
+        setTotalPages(10); // nanti bisa diganti dari res.data jika ada pagination real
       } else {
         setErrorMsg(res.data.message || 'Gagal memuat data');
       }
-
     } catch (err) {
       console.error('Fetch error:', err);
       setErrorMsg('Gagal terhubung ke server. Cek koneksi atau backend.');
@@ -238,7 +221,6 @@ useEffect(() => {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #f0f7ff, #e0f2fe)', padding: '16px 20px' }}>
       <div style={{ maxWidth: '1600px', margin: '0 auto' }}>
-
         <Card fullWidth>
           <div style={{ padding: '24px', textAlign: 'left' }}>
             <h1 style={{ margin: 0, fontSize: 'clamp(26px, 5vw, 36px)', color: '#1d4ed8' }}>
@@ -275,19 +257,18 @@ useEffect(() => {
           handleBatal={handleBatal}
         />
 
-       <AmbilModal
-  show={showAmbilModal}
-  setShow={setShowAmbilModal}
-  selectedItem={selectedItem}
-  selectedTanggal={selectedTanggal}
-  setSelectedTanggal={setSelectedTanggal}
-  ambilLoading={ambilLoading}
-  ambilSuccess={ambilSuccess}
-  confirmAmbil={confirmAmbil}
-  sisaKuota={sisaKuota}
-  cekKuotaLoading={cekKuotaLoading}
-/>
-
+        <AmbilModal
+          show={showAmbilModal}
+          setShow={setShowAmbilModal}
+          selectedItem={selectedItem}
+          selectedTanggal={selectedTanggal}
+          setSelectedTanggal={setSelectedTanggal}
+          ambilLoading={ambilLoading}
+          ambilSuccess={ambilSuccess}
+          confirmAmbil={confirmAmbil}
+          sisaKuota={sisaKuota}
+          cekKuotaLoading={cekKuotaLoading}
+        />
 
         <BatalModal
           show={showBatalModal}
